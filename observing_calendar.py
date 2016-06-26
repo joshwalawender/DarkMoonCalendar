@@ -6,7 +6,10 @@ from __future__ import division, print_function
 import sys
 import os
 import argparse
+
+# from datetime import datetime as dt
 import pytz
+
 import numpy as np
 from astropy import units as u
 from astropy.time import Time, TimeDelta
@@ -14,12 +17,14 @@ from astropy.coordinates import SkyCoord, EarthLocation, AltAz
 
 from astroplan import FixedTarget, Observer, moon
 
+import ephem
+
 ##-------------------------------------------------------------------------
 ## Schedule Night
 ##-------------------------------------------------------------------------
 def schedule_night(sunset, dusk, string=''):
 #     print('{} {} {}'.format(sunset.iso, dusk.iso.split()[1], string))
-    print('{} {} {}'.format(sunset.iso, dusk.iso, string))
+    print('{} {} {}'.format(sunset.iso, dusk.iso.split()[1], string))
 
 
 ##-------------------------------------------------------------------------
@@ -63,8 +68,14 @@ def main():
     ##-------------------------------------------------------------------------
     loc = EarthLocation.of_site(args.site)
     obs = Observer.at_site(args.site)
-    obs.timezone = pytz.timezone('US/Hawaii')
-    
+#     obs.timezone = pytz.timezone('US/Hawaii')
+
+    pyephem_site = ephem.Observer()
+    pyephem_site.lat = str(loc.latitude.to(u.degree).value)
+    pyephem_site.lon = str(loc.longitude.to(u.deg).value)
+    pyephem_site.elevation = loc.height.to(u.m).value
+    pyephem_moon = ephem.Moon()
+
     oneday = TimeDelta(60.*60.*24., format='sec')
     date_iso_string = '{:4d}-01-01T00:00:00'.format(args.year)
     start_date = Time(date_iso_string, format='isot', scale='utc', location=loc)
@@ -73,48 +84,32 @@ def main():
     while int(np.floor(sunset.decimalyear)) == args.year:
         sunset = obs.sun_set_time(sunset+oneday, which='nearest')
         dusk = obs.twilight_evening_astronomical(sunset, which='next')
-        m = moon.get_moon(sunset, obs)
-        illum = moon.moon_illumination(sunset, obs)
-        ##
+        m = moon.get_moon(sunset, loc)
+        illum = moon.moon_illumination(sunset, loc)
+
+        pyephem_site.date = sunset.to_datetime().strftime('%Y/%m/%d %H:%M')
+        pyephem_moon.compute(pyephem_site)
+
         if illum < args.illumination_threshold:
             schedule_night(sunset, dusk, 'dark ({:.0f}%)'.format(illum*100.))
         elif m.alt < 0*u.degree:
-            moon_rise = obs.target_rise_time(sunset, m, which='next')
+#             est_moon_rise = obs.target_rise_time(sunset, m, which='next')
+#             m2 = moon.get_moon(est_moon_rise, loc)
+#             moon_rise = obs.target_rise_time(est_moon_rise, m2, which='nearest')
+            pyephem_moon_rise = Time(pyephem_site.next_rising(ephem.Moon()).datetime())
+            moon_rise = pyephem_moon_rise
             time_to_rise = moon_rise - dusk
             if time_to_rise.sec*u.second > args.dark_time*u.hour:
                 schedule_night(sunset, dusk, 'dark until {:.0f}% moon rise at {}'.format(illum*100., moon_rise.iso))
         elif m.alt >= 0*u.degree:
-            moon_set = obs.target_set_time(sunset, m, which='next')
+#             est_moon_set = obs.target_set_time(sunset, m, which='next')
+#             m2 = moon.get_moon(est_moon_set, loc)
+#             moon_set = obs.target_set_time(sunset, m2, which='nearest')
+            pyephem_moon_set = Time(pyephem_site.next_setting(ephem.Moon()).datetime())
+            moon_set = pyephem_moon_set
             time_to_set = moon_set - dusk
             if time_to_set.sec*u.second < args.wait_time*u.hour:
                 schedule_night(sunset, dusk, 'dark after {:.0f}% moon sets at {}'.format(illum*100., moon_set.iso))
 
-
 if __name__ == '__main__':
-#     main()
-
-    loc = EarthLocation.of_site('Keck Observatory')
-    obs = Observer(loc)
-    
-    oneday = TimeDelta(60.*60.*24., format='sec')
-    start_date = Time('2016-06-24T00:00:00', format='isot', scale='utc', location=loc)
-    sunset = obs.sun_set_time(start_date, which='nearest')
-
-    for i in range(0,20):
-        sunset = obs.sun_set_time(sunset+oneday, which='nearest')
-        dusk = obs.twilight_evening_astronomical(sunset, which='next')
-        m = moon.get_moon(sunset, loc)
-        illum = moon.moon_illumination(sunset, loc)
-        
-        if m.alt < 0*u.degree:
-            est_moon_rise = obs.target_rise_time(sunset, FixedTarget(m), which='next')
-            m = moon.get_moon(est_moon_rise, loc)
-            moon_rise = obs.target_rise_time(est_moon_rise, FixedTarget(m), which='nearest')
-            print('sunset: {}, dusk: {}, {:.0f}% moon rise: {}'.format(sunset.iso,
-                  dusk.iso, illum*100., moon_rise.iso))
-        else:
-            est_moon_set = obs.target_set_time(sunset, FixedTarget(m), which='next')
-            m = moon.get_moon(est_moon_set, loc)
-            moon_set = obs.target_set_time(est_moon_set, FixedTarget(m), which='nearest')
-            print('sunset: {}, dusk: {}, {:.0f}% moon set: {}'.format(sunset.iso,
-                  dusk.iso, illum*100., moon_set.iso))
+    main()
