@@ -22,9 +22,11 @@ import ephem
 ##-------------------------------------------------------------------------
 ## Schedule Night
 ##-------------------------------------------------------------------------
-def schedule_night(sunset, dusk, string=''):
+def schedule_night(sunset, dusk, string='', tz='UTC'):
 #     print('{} {} {}'.format(sunset.iso, dusk.iso.split()[1], string))
-    print('{} {} {}'.format(sunset.iso, dusk.iso.split()[1], string))
+    sunset_string = sunset.strftime('%Y-%m-%d %H:%M:%S')
+    dusk_string = dusk.strftime('%H:%M:%S')
+    print('{}, {}, {}'.format(sunset_string, dusk_string, string))
 
 
 ##-------------------------------------------------------------------------
@@ -48,13 +50,13 @@ def main():
         type=str, dest="site",
         default='Keck Observatory',
         help="Site name to use")
-    parser.add_argument("-i", "--illumination_threshold",
-        type=float, dest="illumination_threshold",
-        default=0.05,
-        help='Maximum moon illumination to be "dark"')
+    parser.add_argument("-z", "--timezone",
+        type=str, dest="timezone",
+        default='US/Hawaii',
+        help='pytz timezone name')
     parser.add_argument("-d", "--dark_time",
         type=float, dest="dark_time",
-        default=2,
+        default=3,
         help='Minimum dark time required (hours)')
     parser.add_argument("-w", "--wait_time",
         type=float, dest="wait_time",
@@ -68,7 +70,8 @@ def main():
     ##-------------------------------------------------------------------------
     loc = EarthLocation.of_site(args.site)
     obs = Observer.at_site(args.site)
-#     obs.timezone = pytz.timezone('US/Hawaii')
+    utc = pytz.timezone('UTC')
+    localtz = pytz.timezone(args.timezone)
 
     pyephem_site = ephem.Observer()
     pyephem_site.lat = str(loc.latitude.to(u.degree).value)
@@ -83,33 +86,39 @@ def main():
 
     while int(np.floor(sunset.decimalyear)) == args.year:
         sunset = obs.sun_set_time(sunset+oneday, which='nearest')
+        local_sunset = sunset.to_datetime(localtz)
+
         dusk = obs.twilight_evening_astronomical(sunset, which='next')
+        local_dusk = dusk.to_datetime(localtz)
+
         m = moon.get_moon(sunset, loc)
         illum = moon.moon_illumination(sunset, loc)
 
         pyephem_site.date = sunset.to_datetime().strftime('%Y/%m/%d %H:%M')
         pyephem_moon.compute(pyephem_site)
 
-        if illum < args.illumination_threshold:
-            schedule_night(sunset, dusk, 'dark ({:.0f}%)'.format(illum*100.))
-        elif m.alt < 0*u.degree:
+        if m.alt < 0*u.degree:
 #             est_moon_rise = obs.target_rise_time(sunset, m, which='next')
 #             m2 = moon.get_moon(est_moon_rise, loc)
 #             moon_rise = obs.target_rise_time(est_moon_rise, m2, which='nearest')
             pyephem_moon_rise = Time(pyephem_site.next_rising(ephem.Moon()).datetime())
             moon_rise = pyephem_moon_rise
+            local_moon_rise = moon_rise.to_datetime(localtz)
             time_to_rise = moon_rise - dusk
             if time_to_rise.sec*u.second > args.dark_time*u.hour:
-                schedule_night(sunset, dusk, 'dark until {:.0f}% moon rise at {}'.format(illum*100., moon_rise.iso))
-        elif m.alt >= 0*u.degree:
+                schedule_night(local_sunset, local_dusk, 'dark until {:.0f}% moon rise at {}'.format(illum*100., local_moon_rise.strftime('%H:%M:%S')))
+        else:
 #             est_moon_set = obs.target_set_time(sunset, m, which='next')
 #             m2 = moon.get_moon(est_moon_set, loc)
 #             moon_set = obs.target_set_time(sunset, m2, which='nearest')
             pyephem_moon_set = Time(pyephem_site.next_setting(ephem.Moon()).datetime())
             moon_set = pyephem_moon_set
+            local_moon_set = moon_set.to_datetime(localtz)
             time_to_set = moon_set - dusk
-            if time_to_set.sec*u.second < args.wait_time*u.hour:
-                schedule_night(sunset, dusk, 'dark after {:.0f}% moon sets at {}'.format(illum*100., moon_set.iso))
+            if moon_set < dusk:
+                schedule_night(local_sunset, local_dusk, 'dark ({:.0f}%)'.format(illum*100.))
+            elif time_to_set.sec*u.second < args.wait_time*u.hour:
+                schedule_night(local_sunset, local_dusk, 'dark after {:.0f}% moon sets at {}'.format(illum*100., local_moon_set.strftime('%H:%M:%S')))
 
 if __name__ == '__main__':
     main()
