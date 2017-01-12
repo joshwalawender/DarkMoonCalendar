@@ -27,7 +27,7 @@ def ics_entry(FO, title, starttime, endtime, description, verbose=False):
     assert type(title) is str
     assert type(starttime) in [dt, str]
     assert type(endtime) in [dt, str]
-    assert type(description) is str
+    assert type(description) in [list, str]
     now = dt.utcnow()
     try:
         starttime = starttime.strftime('%Y%m%dT%H%M%S')
@@ -39,6 +39,8 @@ def ics_entry(FO, title, starttime, endtime, description, verbose=False):
         pass
     if verbose:
         print('{} {}'.format(starttime[0:8], title))
+    if type(description) is list:
+        description = '\\n'.join(description)
     FO.write('BEGIN:VEVENT\n')
     FO.write('UID:{}@mycalendar.com\n'.format(now.strftime('%Y%m%dT%H%M%S.%fZ')))
     FO.write('DTSTAMP:{}\n'.format(now.strftime('%Y%m%dT%H%M%SZ')))
@@ -118,9 +120,10 @@ def main():
         while sunset < start_date + 365*oneday:
             sunset = obs.sun_set_time(sunset+oneday, which='nearest')
             local_sunset = sunset.to_datetime(localtz)
-
             dusk = obs.twilight_evening_astronomical(sunset, which='next')
             local_dusk = dusk.to_datetime(localtz)
+            description = ['Sunset @ {}'.format(local_sunset.strftime('%I:%M %p') ),
+                           '12 deg Twilight @ {}'.format(local_dusk.strftime('%I:%M %p') )]
 
             # Using astroplan
 #             m = moon.get_moon(sunset, loc)
@@ -150,9 +153,10 @@ def main():
                 local_moon_rise = moon_rise.to_datetime(localtz)
                 time_to_rise = moon_rise - dusk
                 if time_to_rise.sec*u.second > args.dark_time*u.hour:
-                    title = 'Dark until {} when {:.0f}% moon rises'.format(
-                            local_moon_rise.strftime('%I:%M %p'), illum*100.)
-                    description = ''
+                    title = 'Dark until {}'.format(
+                            local_moon_rise.strftime('%I:%M %p'))
+                    description.append('{:.0f}% Moon Rises @ {}'.format(
+                            illum*100., local_moon_rise.strftime('%I:%M %p')))
                     ics_entry(FO, title, local_sunset-2*hour, local_dusk+4*hour,
                               description, verbose=True)
             else:
@@ -160,13 +164,13 @@ def main():
                 time_to_set = moon_set - dusk
                 if moon_set < dusk:
                     title = 'Dark ({:.0f}% moon)'.format(illum*100.)
-                    description = ''
                     ics_entry(FO, title, local_sunset-2*hour, local_dusk+4*hour,
                               description, verbose=True)
                 elif time_to_set.sec*u.second < args.wait_time*u.hour:
-                    title = 'Dark after {} when {:.0f}% moon sets'.format(
-                            local_moon_set.strftime('%I:%M %p'), illum*100.)
-                    description = ''
+                    title = 'Dark after {}'.format(
+                            local_moon_set.strftime('%I:%M %p'))
+                    description.append('{:.0f}% Moon Sets @ {}'.format(
+                            illum*100., local_moon_set.strftime('%I:%M %p')))
                     ics_entry(FO, title, local_sunset-2*hour, local_dusk+4*hour,
                               description, verbose=True)
 
@@ -174,4 +178,6 @@ def main():
 
 
 if __name__ == '__main__':
+    from astroplan import download_IERS_A
+    download_IERS_A()
     main()
