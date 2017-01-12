@@ -117,18 +117,24 @@ def main():
             dusk = obs.twilight_evening_astronomical(sunset, which='next')
             local_dusk = dusk.to_datetime(localtz)
 
-            m = moon.get_moon(sunset, loc)
-            illum = moon.moon_illumination(sunset, loc)
+            # Using astroplan
+#             m = moon.get_moon(sunset, loc)
+#             illum = moon.moon_illumination(sunset, loc)
+#             moon_down = m.alt < 0*u.degree
+#             if moon_down:
+#                 est_moon_rise = obs.target_rise_time(sunset, m, which='next')
+#                 m2 = moon.get_moon(est_moon_rise, loc)
+#                 moon_rise = obs.target_rise_time(est_moon_rise, m2, which='nearest')
 
+            # Using pyephem
             pyephem_site.date = sunset.to_datetime().strftime('%Y/%m/%d %H:%M')
             pyephem_moon.compute(pyephem_site)
+            illum = pyephem_moon.moon_phase
+            moon_down = pyephem_moon.alt < 0.
+            if moon_down:
+                moon_rise = Time(pyephem_site.next_rising(ephem.Moon()).datetime())
 
-            if m.alt < 0*u.degree:
-    #             est_moon_rise = obs.target_rise_time(sunset, m, which='next')
-    #             m2 = moon.get_moon(est_moon_rise, loc)
-    #             moon_rise = obs.target_rise_time(est_moon_rise, m2, which='nearest')
-                pyephem_moon_rise = Time(pyephem_site.next_rising(ephem.Moon()).datetime())
-                moon_rise = pyephem_moon_rise
+            if moon_down:
                 local_moon_rise = moon_rise.to_datetime(localtz)
                 time_to_rise = moon_rise - dusk
                 if time_to_rise.sec*u.second > args.dark_time*u.hour:
