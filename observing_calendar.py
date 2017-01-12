@@ -21,29 +21,33 @@ from astroplan import FixedTarget, Observer, moon
 import ephem
 
 ##-------------------------------------------------------------------------
-## Print Night
+## Generate ICS Entry
 ##-------------------------------------------------------------------------
-def schedule_night(FO, local_sunset, local_dusk, title):
-    twohours = tdelta(seconds=60.*60.*2.)
-    descr = 'Sunset: {} | Twilight End: {}'.format(
-            local_sunset.strftime('%I:%M %p'),
-            local_dusk.strftime('%I:%M %p'),
-            )
-    line = '{}, {}, {}, {}, {}, {}\n'.format(
-            title,
-            (local_sunset-twohours).strftime('%m/%d/%Y'),
-            (local_sunset-twohours).strftime('%I:%M %p'),
-            (local_sunset-twohours).strftime('%m/%d/%Y'),
-            '11:59 PM',
-            descr)
-    print('{}, {}, {}'.format(
-          local_sunset.strftime('%Y-%m-%d %H:%M:%S'),
-          local_dusk.strftime('%H:%M:%S'), title))
-    FO.write(line)
-
-def print_night(sunset, dusk, string=''):
-    print('{}, {}, {}'.format(sunset_string.strftime('%Y-%m-%d %H:%M:%S'),\
-                              dusk_string.strftime('%H:%M:%S'), string))
+def ics_entry(FO, title, starttime, endtime, description, verbose=False):
+    assert type(title) is str
+    assert type(starttime) in [dt, str]
+    assert type(endtime) in [dt, str]
+    assert type(description) is str
+    now = dt.utcnow()
+    try:
+        starttime = starttime.strftime('%Y%m%dT%H%M%S')
+    except:
+        pass
+    try:
+        endtime = endtime.strftime('%Y%m%dT%H%M%S')
+    except:
+        pass
+    if verbose:
+        print('{} {}'.format(starttime[0:10], title))
+    FO.write('BEGIN:VEVENT\n')
+    FO.write('UID:{}@mycalendar.com\n'.format(now.strftime('%Y%m%dT%H%M%S.%fZ')))
+    FO.write('DTSTAMP:{}\n'.format(now.strftime('%Y%m%dT%H%M%SZ')))
+    FO.write('DTSTART;TZID=Pacific/Honolulu:{}\n'.format(starttime))
+    FO.write('DTEND;TZID=Pacific/Honolulu:{}\n'.format(endtime))
+    FO.write('SUMMARY:{}\n'.format(title))
+    FO.write('DESCRIPTION: {}\n'.format(description))
+    FO.write('END:VEVENT\n')
+    FO.write('\n')
 
 
 ##-------------------------------------------------------------------------
@@ -92,6 +96,7 @@ def main():
     obs = Observer.at_site(args.site)
     utc = pytz.timezone('UTC')
     localtz = pytz.timezone(args.timezone)
+    hour = tdelta(seconds=60.*60.*1.)
 
     pyephem_site = ephem.Observer()
     pyephem_site.lat = str(loc.latitude.to(u.degree).value)
@@ -104,11 +109,11 @@ def main():
     start_date = Time(date_iso_string, format='isot', scale='utc', location=loc)
     sunset = obs.sun_set_time(start_date, which='nearest')
 
-    filename = 'DarkMoonCalendar_{:4d}.csv'.format(args.year)
-    if os.path.exists(filename): os.remove(filename)
-    with open(filename, 'w') as FO:
-        hdr = 'Subject, Start date, Start time, End date, End time, Description'
-        FO.write(hdr+'\n')
+    ical_file = 'DarkMoonCalendar_{:4d}.ics'.format(args.year)
+    if os.path.exists(ical_file): os.remove(ical_file)
+    with open(ical_file, 'w') as FO:
+        FO.write('BEGIN:VCALENDAR\n'.format())
+        FO.write('PRODID:-//hacksw/handcal//NONSGML v1.0//EN\n'.format())
 
         while sunset < start_date + 365*oneday:
             sunset = obs.sun_set_time(sunset+oneday, which='nearest')
@@ -125,6 +130,10 @@ def main():
 #                 est_moon_rise = obs.target_rise_time(sunset, m, which='next')
 #                 m2 = moon.get_moon(est_moon_rise, loc)
 #                 moon_rise = obs.target_rise_time(est_moon_rise, m2, which='nearest')
+#             else:
+#                 est_moon_set = obs.target_set_time(sunset, m, which='next')
+#                 m2 = moon.get_moon(est_moon_set, loc)
+#                 moon_set = obs.target_set_time(sunset, m2, which='nearest')
 
             # Using pyephem
             pyephem_site.date = sunset.to_datetime().strftime('%Y/%m/%d %H:%M')
@@ -133,6 +142,9 @@ def main():
             moon_down = pyephem_moon.alt < 0.
             if moon_down:
                 moon_rise = Time(pyephem_site.next_rising(ephem.Moon()).datetime())
+            else:
+                moon_set = Time(pyephem_site.next_setting(ephem.Moon()).datetime())
+
 
             if moon_down:
                 local_moon_rise = moon_rise.to_datetime(localtz)
@@ -140,22 +152,26 @@ def main():
                 if time_to_rise.sec*u.second > args.dark_time*u.hour:
                     title = 'Dark until {} when {:.0f}% moon rises'.format(
                             local_moon_rise.strftime('%I:%M %p'), illum*100.)
-                    schedule_night(FO, local_sunset, local_dusk, title)
+                    description = ''
+                    ics_entry(FO, title, local_sunset-2*hour, local_dusk+4*hour,
+                              description, verbose=True)
             else:
-    #             est_moon_set = obs.target_set_time(sunset, m, which='next')
-    #             m2 = moon.get_moon(est_moon_set, loc)
-    #             moon_set = obs.target_set_time(sunset, m2, which='nearest')
-                pyephem_moon_set = Time(pyephem_site.next_setting(ephem.Moon()).datetime())
-                moon_set = pyephem_moon_set
                 local_moon_set = moon_set.to_datetime(localtz)
                 time_to_set = moon_set - dusk
                 if moon_set < dusk:
                     title = 'Dark ({:.0f}% moon)'.format(illum*100.)
-                    schedule_night(FO, local_sunset, local_dusk, title)
+                    description = ''
+                    ics_entry(FO, title, local_sunset-2*hour, local_dusk+4*hour,
+                              description, verbose=True)
                 elif time_to_set.sec*u.second < args.wait_time*u.hour:
                     title = 'Dark after {} when {:.0f}% moon sets'.format(
                             local_moon_set.strftime('%I:%M %p'), illum*100.)
-                    schedule_night(FO, local_sunset, local_dusk, title)
+                    description = ''
+                    ics_entry(FO, title, local_sunset-2*hour, local_dusk+4*hour,
+                              description, verbose=True)
+
+        FO.write('END:VCALENDAR\n')
+
 
 if __name__ == '__main__':
     main()
