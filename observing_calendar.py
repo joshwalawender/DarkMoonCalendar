@@ -147,8 +147,9 @@ def main():
                 moon_rise = Time(pyephem_site.next_rising(ephem.Moon()).datetime())
             else:
                 moon_set = Time(pyephem_site.next_setting(ephem.Moon()).datetime())
-
-
+            
+            ttup = local_sunset.timetuple()
+            endtime = dt(ttup.tm_year, ttup.tm_mon, ttup.tm_mday, 23, 59, 00, 0, localtz)
             if moon_down:
                 local_moon_rise = moon_rise.to_datetime(localtz)
                 time_to_rise = moon_rise - dusk
@@ -157,27 +158,27 @@ def main():
                             local_moon_rise.strftime('%I:%M %p'))
                     description.append('{:.0f}% Moon Rises @ {}'.format(
                             illum*100., local_moon_rise.strftime('%I:%M %p')))
-                    ics_entry(FO, title, local_sunset-2*hour, local_dusk+4*hour,
+                    ics_entry(FO, title, local_sunset-2*hour, endtime,
                               description, verbose=True)
             else:
                 local_moon_set = moon_set.to_datetime(localtz)
                 time_to_set = moon_set - dusk
                 if moon_set < dusk:
                     title = 'Dark ({:.0f}% moon)'.format(illum*100.)
-                    ics_entry(FO, title, local_sunset-2*hour, local_dusk+4*hour,
+                    ics_entry(FO, title, local_sunset-2*hour, endtime,
                               description, verbose=True)
                 elif time_to_set.sec*u.second < args.wait_time*u.hour:
                     title = 'Dark after {}'.format(
                             local_moon_set.strftime('%I:%M %p'))
                     description.append('{:.0f}% Moon Sets @ {}'.format(
                             illum*100., local_moon_set.strftime('%I:%M %p')))
-                    ics_entry(FO, title, local_sunset-2*hour, local_dusk+4*hour,
+                    ics_entry(FO, title, local_sunset-2*hour, endtime,
                               description, verbose=True)
 
         FO.write('END:VCALENDAR\n')
 
 
 if __name__ == '__main__':
-    from astroplan import download_IERS_A
-    download_IERS_A()
+#     from astroplan import download_IERS_A
+#     download_IERS_A()
     main()
