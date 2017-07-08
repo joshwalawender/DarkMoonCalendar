@@ -53,6 +53,79 @@ def ics_entry(FO, title, starttime, endtime, description, verbose=False):
 
 
 ##-------------------------------------------------------------------------
+## Analyze Day
+##-------------------------------------------------------------------------
+def analyze_day(search_around, obs, pyephem_site, FO, localtz, pyephem_moon,
+                args, verbose=True):
+#     print('Searching for sunset time around {}'.format(search_around.to_datetime().strftime('%Y/%m/%d %H:%M')))
+    sunset = obs.sun_set_time(search_around, which='nearest')
+    delta = (search_around.to_datetime() - sunset.to_datetime()).total_seconds()
+    if abs(delta) > 12*60*60:
+        sunset = obs.sun_set_time(search_around+TimeDelta(1800, format='sec'), which='nearest')
+        delta = (search_around.to_datetime() - sunset.to_datetime()).total_seconds()
+    if abs(delta) > 12*60*60:
+        print('WARNING Delta = {:.0f} seconds'.format(delta))
+    print('Sunset at {}'.format(sunset.to_datetime().strftime('%Y/%m/%d %H:%M')))
+    local_sunset = sunset.to_datetime(localtz)
+    dusk = obs.twilight_evening_astronomical(sunset, which='next')
+    local_dusk = dusk.to_datetime(localtz)
+    description = ['Sunset @ {}'.format(local_sunset.strftime('%I:%M %p') ),
+                   '12 deg Twilight @ {}'.format(local_dusk.strftime('%I:%M %p') )]
+
+    # Using pyephem
+    pyephem_site.date = sunset.to_datetime().strftime('%Y/%m/%d %H:%M')
+    pyephem_moon.compute(pyephem_site)
+    illum = pyephem_moon.moon_phase
+    moon_down = pyephem_moon.alt < 0.
+    if moon_down:
+        moon_rise = Time(pyephem_site.next_rising(ephem.Moon()).datetime())
+    else:
+        moon_set = Time(pyephem_site.next_setting(ephem.Moon()).datetime())
+    
+    ttup = local_sunset.timetuple()
+    endtime = dt(ttup.tm_year, ttup.tm_mon, ttup.tm_mday, 23, 59, 00, 0, localtz)
+
+    print('  Moon is down at sunset? {}'.format(moon_down))
+
+    if moon_down:
+        local_moon_rise = moon_rise.to_datetime(localtz)
+        time_to_rise = moon_rise - dusk
+        print('  Moon rise at {}, which is in {:.1f} hours after dusk.'.format(
+              moon_rise.to_datetime().strftime('%Y/%m/%d %H:%M'),
+              (moon_rise.to_datetime() - dusk.to_datetime()).total_seconds()/60./60.))
+        if time_to_rise.sec*u.second > args.dark_time*u.hour:
+            print('  Observable!')
+            title = 'Dark until {}'.format(
+                    local_moon_rise.strftime('%I:%M %p'))
+            description.append('{:.0f}% Moon Rises @ {}'.format(
+                    illum*100., local_moon_rise.strftime('%I:%M %p')))
+            ics_entry(FO, title, local_sunset-2*tdelta(seconds=60.*60.*1.), endtime,
+                      description, verbose=True)
+    else:
+        local_moon_set = moon_set.to_datetime(localtz)
+        time_to_set = moon_set - dusk
+        print('  Moon set at {}, which is in {:.1f} hours after dusk.'.format(
+              moon_set.to_datetime().strftime('%Y/%m/%d %H:%M'),
+              (moon_set.to_datetime() - dusk.to_datetime()).total_seconds()/60./60.))
+        if moon_set < dusk:
+            print('  Observable!')
+            title = 'Dark ({:.0f}% moon)'.format(illum*100.)
+            ics_entry(FO, title, local_sunset-2*tdelta(seconds=60.*60.*1.), endtime,
+                      description, verbose=True)
+        elif time_to_set.sec*u.second < args.wait_time*u.hour:
+            print('  Observable!')
+            title = 'Dark after {}'.format(
+                    local_moon_set.strftime('%I:%M %p'))
+            description.append('{:.0f}% Moon Sets @ {}'.format(
+                    illum*100., local_moon_set.strftime('%I:%M %p')))
+            ics_entry(FO, title, local_sunset-2*tdelta(seconds=60.*60.*1.), endtime,
+                      description, verbose=True)
+
+
+    return sunset
+
+
+##-------------------------------------------------------------------------
 ## Main Program
 ##-------------------------------------------------------------------------
 def main():
@@ -98,7 +171,7 @@ def main():
     obs = Observer.at_site(args.site)
     utc = pytz.timezone('UTC')
     localtz = pytz.timezone(args.timezone)
-    hour = tdelta(seconds=60.*60.*1.)
+#     hour = tdelta(seconds=60.*60.*1.)
 
     pyephem_site = ephem.Observer()
     pyephem_site.lat = str(loc.latitude.to(u.degree).value)
@@ -118,63 +191,9 @@ def main():
         FO.write('PRODID:-//hacksw/handcal//NONSGML v1.0//EN\n'.format())
 
         while sunset < start_date + 365*oneday:
-            sunset = obs.sun_set_time(sunset+oneday, which='nearest')
-            local_sunset = sunset.to_datetime(localtz)
-            dusk = obs.twilight_evening_astronomical(sunset, which='next')
-            local_dusk = dusk.to_datetime(localtz)
-            description = ['Sunset @ {}'.format(local_sunset.strftime('%I:%M %p') ),
-                           '12 deg Twilight @ {}'.format(local_dusk.strftime('%I:%M %p') )]
-
-            # Using astroplan
-#             m = moon.get_moon(sunset, loc)
-#             illum = moon.moon_illumination(sunset, loc)
-#             moon_down = m.alt < 0*u.degree
-#             if moon_down:
-#                 est_moon_rise = obs.target_rise_time(sunset, m, which='next')
-#                 m2 = moon.get_moon(est_moon_rise, loc)
-#                 moon_rise = obs.target_rise_time(est_moon_rise, m2, which='nearest')
-#             else:
-#                 est_moon_set = obs.target_set_time(sunset, m, which='next')
-#                 m2 = moon.get_moon(est_moon_set, loc)
-#                 moon_set = obs.target_set_time(sunset, m2, which='nearest')
-
-            # Using pyephem
-            pyephem_site.date = sunset.to_datetime().strftime('%Y/%m/%d %H:%M')
-            pyephem_moon.compute(pyephem_site)
-            illum = pyephem_moon.moon_phase
-            moon_down = pyephem_moon.alt < 0.
-            if moon_down:
-                moon_rise = Time(pyephem_site.next_rising(ephem.Moon()).datetime())
-            else:
-                moon_set = Time(pyephem_site.next_setting(ephem.Moon()).datetime())
-            
-            ttup = local_sunset.timetuple()
-            endtime = dt(ttup.tm_year, ttup.tm_mon, ttup.tm_mday, 23, 59, 00, 0, localtz)
-            if moon_down:
-                local_moon_rise = moon_rise.to_datetime(localtz)
-                time_to_rise = moon_rise - dusk
-                if time_to_rise.sec*u.second > args.dark_time*u.hour:
-                    title = 'Dark until {}'.format(
-                            local_moon_rise.strftime('%I:%M %p'))
-                    description.append('{:.0f}% Moon Rises @ {}'.format(
-                            illum*100., local_moon_rise.strftime('%I:%M %p')))
-                    ics_entry(FO, title, local_sunset-2*hour, endtime,
-                              description, verbose=True)
-            else:
-                local_moon_set = moon_set.to_datetime(localtz)
-                time_to_set = moon_set - dusk
-                if moon_set < dusk:
-                    title = 'Dark ({:.0f}% moon)'.format(illum*100.)
-                    ics_entry(FO, title, local_sunset-2*hour, endtime,
-                              description, verbose=True)
-                elif time_to_set.sec*u.second < args.wait_time*u.hour:
-                    title = 'Dark after {}'.format(
-                            local_moon_set.strftime('%I:%M %p'))
-                    description.append('{:.0f}% Moon Sets @ {}'.format(
-                            illum*100., local_moon_set.strftime('%I:%M %p')))
-                    ics_entry(FO, title, local_sunset-2*hour, endtime,
-                              description, verbose=True)
-
+            search_around = sunset+oneday
+            sunset = analyze_day(search_around, obs, pyephem_site, FO, localtz,
+                                 pyephem_moon, args, verbose=True)
         FO.write('END:VCALENDAR\n')
 
 
