@@ -168,13 +168,6 @@ def main():
     obs = Observer.at_site(args.site)
     utc = pytz.timezone('UTC')
     localtz = pytz.timezone(args.timezone)
-#     hour = tdelta(seconds=60.*60.*1.)
-
-#     pyephem_site = ephem.Observer()
-#     pyephem_site.lat = str(loc.lat.to(u.degree).value)
-#     pyephem_site.lon = str(loc.lon.to(u.deg).value)
-#     pyephem_site.elevation = loc.height.to(u.m).value
-#     pyephem_moon = ephem.Moon()
 
     oneday = TimeDelta(60.*60.*24., format='sec')
     date_iso_string = '{:4d}-01-01T00:00:00'.format(args.year)
