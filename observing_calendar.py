@@ -79,7 +79,7 @@ def analyze_day(search_around, obs, FO, localtz, args, verbose=True):
 
     preamble = f"Sunset at {local_sunset.strftime('%Y/%m/%d %H:%M')}"
 
-    if illum > 0.5:
+    if illum > 0.7:
         title = f"Moon is bright ({illum*100:.0f}%)."
         print(f"{preamble}: {title}")
     elif illum < 0.1:
@@ -189,6 +189,6 @@ def main():
 
 
 if __name__ == '__main__':
-    from astroplan import download_IERS_A
-    download_IERS_A()
+#     from astroplan import download_IERS_A
+#     download_IERS_A()
     main()
