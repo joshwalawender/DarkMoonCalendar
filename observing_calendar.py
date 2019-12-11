@@ -79,7 +79,7 @@ def analyze_day(search_around, obs, FO, localtz, args, verbose=True):
 
     preamble = f"Sunset at {local_sunset.strftime('%Y/%m/%d %H:%M')}"
 
-    if illum > 0.7:
+    if illum > 0.8:
         title = f"Moon is bright ({illum*100:.0f}%)."
         print(f"{preamble}: {title}")
     elif illum < 0.1:
