@@ -49,6 +49,46 @@ def ics_entry(FO, title, starttime, endtime, description, verbose=False):
     FO.write('END:VEVENT\n')
     FO.write('\n')
 
+    print(f"  {description}")
+
+
+##-------------------------------------------------------------------------
+## List Minima of Algol
+##-------------------------------------------------------------------------
+def minima_of_algol():
+    '''from https://calgary.rasc.ca/algol_minima.htm
+    > Note: - In January 2004, Sky and Telescope Magazine (Jan 2004 pg. 112)
+    changed their calculation of when the minimum brightness or "Minima of
+    Algol" would occur to: JD 2452253.567 +2.867321 E and stated that: "The
+    newly revised constants, by Marvin Baldwin (AAVSO) are based on 17 timings
+    collected during 1999-2003 and the star's average period during the
+    previous 35 years." The 2005 RASC Observer's Handbook also switched to
+    these values.
+    '''
+    t0jd = 2452253.567
+    t0 = Time(t0jd, format='jd')
+    period = 2.867321
+    minima = Time([t0jd+n*period for n in range(2300,3500)], format='jd')
+    return minima.to_datetime()
+
+
+def next_minima_of_algol(t):
+    '''from https://calgary.rasc.ca/algol_minima.htm
+    > Note: - In January 2004, Sky and Telescope Magazine (Jan 2004 pg. 112)
+    changed their calculation of when the minimum brightness or "Minima of
+    Algol" would occur to: JD 2452253.567 +2.867321 E and stated that: "The
+    newly revised constants, by Marvin Baldwin (AAVSO) are based on 17 timings
+    collected during 1999-2003 and the star's average period during the
+    previous 35 years." The 2005 RASC Observer's Handbook also switched to
+    these values.
+    '''
+    t0jd = 2452253.567
+    t0 = Time(t0jd, format='jd')
+    period = 2.867321
+    minima = Time([t0jd+n*period for n in range(2300,3500)], format='jd')
+    delta = minima.to_datetime() - t
+    return minima.to_datetime()[delta > tdelta(0)][0]
+
 
 ##-------------------------------------------------------------------------
 ## Analyze Day
@@ -79,22 +119,49 @@ def analyze_day(search_around, obs, FO, localtz, args, verbose=True):
 
     preamble = f"Sunset at {local_sunset.strftime('%Y/%m/%d %H:%M')}"
 
+    # Check Minima of Algol
+    minima_visible = False
+    next_minima = next_minima_of_algol(sunset.to_datetime())
+    time_to_next = next_minima - sunset.to_datetime()
+    if time_to_next < tdelta(0.25):
+        algol = SkyCoord.from_name('Algol').transform_to(FK5())
+        algol.location = obs.location
+        algol.obstime = Time(next_minima)
+        algolalt = algol.transform_to(AltAz()).alt
+        if algolalt.value > 30:
+            minima_visible = True
+            localtime_of_next = next_minima - tdelta(seconds=10*60*60)
+            description.append(f'Minima of Algol at {localtime_of_next.strftime("%I:%M %p")}')
+
     if illum > 0.8:
-        title = f"Moon is bright ({illum*100:.0f}%)."
+        title = f"{illum*100:.0f}% Moon."
+        if minima_visible is True:
+            title = f'Algol at minimum. {title}'
+            ics_entry(FO, title, local_sunset-2*tdelta(seconds=60.*60.*1.), endtime,
+                      description, verbose=verbose)
         print(f"{preamble}: {title}")
     elif illum < 0.1:
-        title = f"Moon is dark ({illum*100:.0f}%)."
-        print(f"{preamble}: {title}")
+        title = f"{illum*100:.0f}% Moon."
+        if minima_visible is True:
+            title = f'Algol at minimum. {title}'
         description.append(f"Moon is dark ({illum*100:.0f}%)")
         ics_entry(FO, title, local_sunset-2*tdelta(seconds=60.*60.*1.), endtime,
                   description, verbose=verbose)
-    elif moon_down is True:
-        title = f"Moon is gray ({illum*100:.0f}%)."
+        print(f"{preamble}: {title}")
+    elif moon_down == True:
+        title = f"{illum*100:.0f}% Moon."
+        if minima_visible is True:
+            title = f'Algol at minimum. {title}'
         moon_rise = obs.moon_rise_time(sunset)
         local_moon_rise = moon_rise.to_datetime(localtz)
         time_to_rise = moon_rise - dusk
         if time_to_rise.sec < 0:
             title += ' Moon rises during twilight'
+            if minima_visible is True:
+                title = f'Algol at minimum. {title}'
+                ics_entry(FO, title, local_sunset-2*tdelta(seconds=60.*60.*1.), endtime,
+                          description, verbose=verbose)
+
         if time_to_rise.sec*u.second > args.dark_time*u.hour:
             title += f" Dark until {local_moon_rise.strftime('%I:%M %p')} ({time_to_rise.sec/3600:.1f} hr)"
             description.append(f"{illum*100:.0f}% Moon Rises @ {local_moon_rise.strftime('%I:%M %p')}")
@@ -104,8 +171,10 @@ def analyze_day(search_around, obs, FO, localtz, args, verbose=True):
             title += f" Moon rises at {local_moon_rise.strftime('%Y/%m/%d %H:%M')},"\
                      f" only {time_to_rise.sec/3600:.1f} hours after dusk."
         print(f"{preamble}: {title}")
-    elif moon_down is False:
-        title = f"Moon is gray ({illum*100:.0f}%)."
+    elif moon_down == False:
+        title = f"{illum*100:.0f}% Moon."
+        if minima_visible is True:
+            title = f'Algol at minimum. {title}'
         if illum < 0.3:
             moon_set = obs.moon_set_time(sunset)
             local_moon_set = moon_set.to_datetime(localtz)
@@ -114,8 +183,13 @@ def analyze_day(search_around, obs, FO, localtz, args, verbose=True):
             description.append(f"{illum*100:.0f}% Moon Sets @ {local_moon_set.strftime('%I:%M %p')}")
             ics_entry(FO, title, local_sunset-2*tdelta(seconds=60.*60.*1.), endtime,
                       description, verbose=verbose)
+        else:
+            if minima_visible is True:
+                ics_entry(FO, title, local_sunset-2*tdelta(seconds=60.*60.*1.), endtime,
+                          description, verbose=verbose)
     else:
-        print('Weird!')
+        print(illum, moon_down)
+        print('Something weird happened!')
         sys.exit(1)
 
     return sunset
@@ -163,6 +237,7 @@ def main():
     if args.year == -1:
         args.year = dt.now().year
 
+
     ##-------------------------------------------------------------------------
     ## 
     ##-------------------------------------------------------------------------
@@ -170,7 +245,7 @@ def main():
     utc = pytz.timezone('UTC')
     localtz = pytz.timezone(args.timezone)
 
-    oneday = TimeDelta(60.*60.*24., format='sec')
+    oneday = TimeDelta(60*60*24-600, format='sec')
     date_iso_string = f'{args.year:4d}-01-01T00:00:00'
     start_date = Time(date_iso_string, format='isot', scale='utc', location=obs.location)
     sunset = obs.sun_set_time(start_date, which='next')
@@ -185,10 +260,16 @@ def main():
             search_around = sunset + oneday
             sunset = analyze_day(search_around, obs, FO, localtz, args,
                                  verbose=args.verbose)
+
         FO.write('END:VCALENDAR\n')
 
 
 if __name__ == '__main__':
-#     from astroplan import download_IERS_A
-#     download_IERS_A()
+    from astroplan import download_IERS_A, get_IERS_A_or_workaround
+#     try:
+#         download_IERS_A()
+#     except:
+#         print('Failed to download_IERS_A')
+    get_IERS_A_or_workaround()
+
     main()
