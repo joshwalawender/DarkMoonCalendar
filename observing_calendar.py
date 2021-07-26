@@ -255,13 +255,16 @@ def main():
     start_date = Time(date_iso_string, format='isot', scale='utc', location=obs.location)
     sunset = obs.sun_set_time(start_date, which='next')
 
+    enddate_iso_string = f'{args.year+1:4d}-01-01T00:00:00'
+    end_date = Time(enddate_iso_string, format='isot', scale='utc', location=obs.location)
+
     ical_file = 'DarkMoonCalendar_{:4d}.ics'.format(args.year)
     if os.path.exists(ical_file): os.remove(ical_file)
     with open(ical_file, 'w') as FO:
         FO.write('BEGIN:VCALENDAR\n'.format())
         FO.write('PRODID:-//hacksw/handcal//NONSGML v1.0//EN\n'.format())
 
-        while sunset < start_date + 365*oneday:
+        while sunset < end_date:
             search_around = sunset + oneday
             sunset = analyze_day(search_around, obs, FO, localtz, args,
                                  verbose=args.verbose)
