@@ -265,11 +265,11 @@ def main():
 
 
 if __name__ == '__main__':
-    from astroplan import download_IERS_A, get_IERS_A_or_workaround
-#     try:
-#         download_IERS_A()
-#     except:
-#         print('Failed to download_IERS_A')
-    get_IERS_A_or_workaround()
+    from astroplan import download_IERS_A#, get_IERS_A_or_workaround
+    try:
+        download_IERS_A()
+    except:
+        print('Failed to download_IERS_A')
+#     get_IERS_A_or_workaround()
 
     main()
