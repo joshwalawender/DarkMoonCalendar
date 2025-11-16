@@ -14,9 +14,11 @@ import pytz
 import numpy as np
 from astropy import units as u
 from astropy.time import Time, TimeDelta
-from astropy.coordinates import SkyCoord, EarthLocation, AltAz, FK5
+from astropy import coordinates as coord
+# from astropy.coordinates import SkyCoord, EarthLocation, AltAz, FK5, GeocentricTrueEcliptic, get_body
 
-from astroplan import FixedTarget, Observer, moon, moon_illumination
+import astroplan
+# from astroplan import FixedTarget, Observer, moon, moon_illumination
 
 ##-------------------------------------------------------------------------
 ## Generate ICS Entry
@@ -95,6 +97,45 @@ def next_minima_of_algol(t):
     return minima.to_datetime()[delta > tdelta(0)][0]
 
 
+
+
+##-------------------------------------------------------------------------
+## Solstice and Equinox Finders
+##-------------------------------------------------------------------------
+# vernal equinox is the moment when the ecliptic longitude of the Sun is zero
+# summer solstice is the moment when the ecliptic longitude of the Sun is 90
+def check_for_solstice_equinox(t):
+    sun = coord.get_body('sun', t)
+    eclipticOfDate = coord.GeocentricTrueEcliptic(equinox=t)
+    sunEcliptic = sun.transform_to(eclipticOfDate)
+
+    events = {0: 'Spring Equinox',
+              360: 'Spring Equinox',
+              90: 'Summer Solstice',
+              180: 'Autumn Equinox',
+              270: 'Winter Solstice',
+              }
+    delta_lons = [abs(sunEcliptic.lon.deg-lon) for lon in events.keys()]
+    dtSun = TimeDelta(7200, format='sec')
+    if min(delta_lons) < 0.5:
+        sun2 = coord.get_body('sun', t+dtSun)
+        eclipticOfDate2 = coord.GeocentricTrueEcliptic(equinox=t+dtSun)
+        sunEcliptic2 = sun2.transform_to(eclipticOfDate2)
+
+        event_lon_ind = np.argmin(delta_lons)
+        event_lon = [v for v in events.keys()][event_lon_ind]
+        event_name = events[event_lon]
+
+        dL_dt = (sunEcliptic2.lon.deg-sunEcliptic.lon.deg)/dtSun.sec
+        delta_L = event_lon - sunEcliptic.lon.deg
+        delta_t = delta_L/dL_dt
+        event_time = t + TimeDelta(delta_t, format='sec')
+        print(event_name, event_time.datetime.strftime('%Y-%m-%d %H:%M:%S'))
+        return event_name, event_time #.datetime.strftime('%Y-%m-%d %H:%M:%S')
+
+    return None
+
+
 ##-------------------------------------------------------------------------
 ## Analyze Day
 ##-------------------------------------------------------------------------
@@ -114,25 +155,37 @@ def analyze_day(search_around, obs, FO, localtz, args, verbose=True):
                    f"18 deg Twilight @ {local_dusk.strftime('%I:%M %p')}"]
 
     # Moon from astroplan
-    illum = moon_illumination(sunset)
-    mooncoord = moon.get_moon(sunset).transform_to(FK5())
+    illum = astroplan.moon_illumination(sunset)
+    try:
+        mooncoord = astroplan.moon.get_moon(sunset).transform_to(coord.FK5())
+    except:
+        mooncoord = coord.get_body('moon', sunset).transform_to(coord.FK5())
     mooncoord.location = obs.location
-    moonalt = mooncoord.transform_to(AltAz()).alt
+    moonalt = mooncoord.transform_to(coord.AltAz()).alt
     moon_down = moonalt.value < 0.
     ttup = local_sunset.timetuple()
     endtime = dt(ttup.tm_year, ttup.tm_mon, ttup.tm_mday, 23, 59, 00, 0, localtz)
 
     preamble = f"Sunset at {local_sunset.strftime('%Y/%m/%d %H:%M')}"
 
+    # Check for Solstice or Equinox
+    # equinoxes around Mar 21 and Sep 20
+    # solstices around June 21 and Dec 21
+    event = check_for_solstice_equinox(sunset)
+    if event is not None:
+        event_ut = event[1].datetime.strftime('%Y-%m-%d %H:%M:%S')
+        event_hst = (event[1]-tdelta(seconds=10*60*60)).datetime.strftime('%Y-%m-%d %H:%M:%S')
+        description.append(f"{event[0]} at {event_hst} HST")
+
     # Check Minima of Algol
     minima_visible = False
     next_minima = next_minima_of_algol(sunset.to_datetime())
     time_to_next = next_minima - sunset.to_datetime()
     if time_to_next < tdelta(0.25):
-        algol = SkyCoord.from_name('Algol').transform_to(FK5())
+        algol = coord.SkyCoord.from_name('Algol').transform_to(coord.FK5())
         algol.location = obs.location
         algol.obstime = Time(next_minima)
-        algolalt = algol.transform_to(AltAz()).alt
+        algolalt = algol.transform_to(coord.AltAz()).alt
         if algolalt.value > 30:
             minima_visible = True
             localtime_of_next = next_minima - tdelta(seconds=10*60*60)
@@ -140,14 +193,18 @@ def analyze_day(search_around, obs, FO, localtz, args, verbose=True):
 
     if illum > 0.8:
         title = f"{illum*100:.0f}% Moon."
-        if minima_visible is True:
+        if event is not None:
+            title = f'{event[0]}. {title}'
+        elif minima_visible is True:
             title = f'Algol at minimum. {title}'
             ics_entry(FO, title, local_sunset-2*tdelta(seconds=60.*60.*1.), endtime,
                       description, verbose=verbose)
         print(f"{preamble}: {title}")
     elif illum < 0.1:
         title = f"{illum*100:.0f}% Moon."
-        if minima_visible is True:
+        if event is not None:
+            title = f'{event[0]}. {title}'
+        elif minima_visible is True:
             title = f'Algol at minimum. {title}'
         description.append(f"Moon is dark ({illum*100:.0f}%)")
         ics_entry(FO, title, local_sunset-2*tdelta(seconds=60.*60.*1.), endtime,
@@ -155,7 +212,9 @@ def analyze_day(search_around, obs, FO, localtz, args, verbose=True):
         print(f"{preamble}: {title}")
     elif moon_down == True:
         title = f"{illum*100:.0f}% Moon."
-        if minima_visible is True:
+        if event is not None:
+            title = f'{event[0]}. {title}'
+        elif minima_visible is True:
             title = f'Algol at minimum. {title}'
         moon_rise = obs.moon_rise_time(sunset)
         local_moon_rise = moon_rise.to_datetime(localtz)
@@ -178,7 +237,9 @@ def analyze_day(search_around, obs, FO, localtz, args, verbose=True):
         print(f"{preamble}: {title}")
     elif moon_down == False:
         title = f"{illum*100:.0f}% Moon."
-        if minima_visible is True:
+        if event is not None:
+            title = f'{event[0]}. {title}'
+        elif minima_visible is True:
             title = f'Algol at minimum. {title}'
         if illum < 0.3:
             moon_set = obs.moon_set_time(sunset)
@@ -246,7 +307,7 @@ def main():
     ##-------------------------------------------------------------------------
     ## 
     ##-------------------------------------------------------------------------
-    obs = Observer.at_site(args.site)
+    obs = astroplan.Observer.at_site(args.site)
     utc = pytz.timezone('UTC')
     localtz = pytz.timezone(args.timezone)
 
