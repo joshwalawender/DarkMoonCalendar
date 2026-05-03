@@ -191,7 +191,7 @@ def analyze_day(search_around, obs, FO, localtz, args, verbose=True):
             localtime_of_next = next_minima - tdelta(seconds=10*60*60)
             description.append(f'Minima of Algol at {localtime_of_next.strftime("%I:%M %p")}')
 
-    if illum > 0.8:
+    if illum > 0.85:
         title = f"{illum*100:.0f}% Moon."
         if event is not None:
             title = f'{event[0]}. {title}'
